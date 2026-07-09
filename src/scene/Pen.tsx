@@ -70,10 +70,15 @@ export function Pen({ print }: { print: HTMLImageElement | null }) {
     <group position={[0, LIFT, 0]} rotation={[0, YAW, 0]}>
       <group rotation={[0, 0, -Math.PI / 2 + TILT]}>
         <group position={[0, -PEN_L / 2, 0]}>
-        {/* Tapered nib */}
+        {/* Tapered nib — barrel radius at the top, narrowing to the tip */}
         <mesh position={[0, TIP_H / 2, 0]} castShadow>
-          <cylinderGeometry args={[0.001, R, TIP_H, 32]} />
+          <cylinderGeometry args={[R * 0.92, 0.0012, TIP_H, 32]} />
           <meshStandardMaterial {...chrome} roughness={0.3} />
+        </mesh>
+        {/* Ball point */}
+        <mesh position={[0, 0.0006, 0]}>
+          <sphereGeometry args={[0.0014, 12, 8]} />
+          <meshStandardMaterial color="#3a3d42" metalness={0.8} roughness={0.3} />
         </mesh>
 
         {/* Lime accent ring at the nib */}

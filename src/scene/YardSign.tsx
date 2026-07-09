@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { NAVY, makeFittedTexture } from './print'
+import { makeAlphaTexture, makeFittedTexture } from './print'
 import { YARD_SIGN_SIZES, type YardSignSize } from './sizes'
 
 const T = 0.012 // corrugated panel thickness
@@ -32,13 +32,16 @@ function Stake({ x, panelH }: { x: number; panelH: number }) {
   )
 }
 
-/** A corrugated yard sign on H-wire stakes. */
+/** A corrugated yard sign on H-wire stakes. An empty sign shows a white
+ *  panel with the Packeze logo; an uploaded print replaces it. */
 export function YardSign({
   print,
+  logo = null,
   size = '18x24',
   doubleSided = true,
 }: {
   print: HTMLImageElement | null
+  logo?: HTMLImageElement | null
   size?: YardSignSize
   doubleSided?: boolean
 }) {
@@ -48,12 +51,13 @@ export function YardSign({
     () => (print ? makeFittedTexture(print, W / H, 'contain', '#ffffff') : null),
     [print, W, H],
   )
+  const logoTex = useMemo(() => (logo ? makeAlphaTexture(logo) : null), [logo])
 
   // BoxGeometry material order: +X, -X, +Y, -Y, +Z (front), -Z (back).
   const materials = useMemo(() => {
     const edge = new THREE.MeshStandardMaterial({ color: '#e7e9ec', roughness: 0.9 })
     const face = new THREE.MeshStandardMaterial({
-      color: tex ? '#ffffff' : NAVY,
+      color: '#ffffff', // white sign blank; the print (if any) covers it
       map: tex,
       roughness: 0.85,
     })
@@ -64,19 +68,38 @@ export function YardSign({
   // Narrow panels get one centred stake; wider ones get a pair.
   const stakeXs = W < 0.4 ? [0] : [-W * 0.28, W * 0.28]
 
+  const logoSize = Math.min(W, H) * 0.5
+  const midY = LIFT + H / 2
+
   return (
     <group>
       {stakeXs.map((x) => (
         <Stake key={x} x={x} panelH={H} />
       ))}
       <mesh
-        position={[0, LIFT + H / 2, 0]}
+        position={[0, midY, 0]}
         material={materials}
         castShadow
         receiveShadow
       >
         <boxGeometry args={[W, H, T]} />
       </mesh>
+
+      {/* Packeze logo on the blank sign (front, and back when double-sided) */}
+      {!tex && logoTex && (
+        <>
+          <mesh position={[0, midY, T / 2 + 0.002]}>
+            <planeGeometry args={[logoSize, logoSize]} />
+            <meshStandardMaterial map={logoTex} transparent alphaTest={0.05} roughness={0.85} />
+          </mesh>
+          {doubleSided && (
+            <mesh position={[0, midY, -T / 2 - 0.002]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[logoSize, logoSize]} />
+              <meshStandardMaterial map={logoTex} transparent alphaTest={0.05} roughness={0.85} />
+            </mesh>
+          )}
+        </>
+      )}
     </group>
   )
 }

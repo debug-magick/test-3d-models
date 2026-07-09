@@ -297,6 +297,7 @@ export default function App() {
           {active === 'yard' && (
             <YardSignScene
               print={printImage}
+              logo={logoImage}
               size={yardSize}
               doubleSided={yardDoubleSided}
             />

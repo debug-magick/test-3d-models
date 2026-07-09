@@ -54,10 +54,12 @@ function Road() {
 /** Standalone yard-sign preview: the sign staked into a lawn by a road. */
 export function YardSignScene({
   print,
+  logo = null,
   size,
   doubleSided,
 }: {
   print: HTMLImageElement | null
+  logo?: HTMLImageElement | null
   size: YardSignSize
   doubleSided: boolean
 }) {
@@ -68,7 +70,7 @@ export function YardSignScene({
       {/* Slightly enlarged so the sign reads well in the scene,
           turned 60° left toward oncoming traffic. */}
       <group scale={1.5} rotation={[0, Math.PI / 3, 0]}>
-        <YardSign print={print} size={size} doubleSided={doubleSided} />
+        <YardSign print={print} logo={logo} size={size} doubleSided={doubleSided} />
       </group>
     </group>
   )
