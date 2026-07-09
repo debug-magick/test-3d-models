@@ -10,6 +10,17 @@ export const TENT_SIZES: Record<TentSize, { label: string; w: number; d: number 
   '10x20': { label: '10×20 ft', w: 20 * FT, d: 10 * FT },
 }
 
+export type FlagSize = '6ft' | '7ft' | '10ft' | '12ft' | '14ft'
+
+/** Available flag heights (total, ground to tip). */
+export const FLAG_SIZES: Record<FlagSize, { label: string; h: number }> = {
+  '6ft': { label: '6 ft', h: 6 * FT },
+  '7ft': { label: '7 ft', h: 7 * FT },
+  '10ft': { label: '10 ft', h: 10 * FT },
+  '12ft': { label: '12 ft', h: 12 * FT },
+  '14ft': { label: '14 ft', h: 14 * FT },
+}
+
 export type YardSignSize = '12x18' | '18x24' | '24x24' | '24x36'
 
 /** Available yard-sign panel sizes (width × height, inches). */

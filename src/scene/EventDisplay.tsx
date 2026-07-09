@@ -1,18 +1,20 @@
-import { Canopy } from './Canopy'
+import { Canopy, type WallMode } from './Canopy'
 import { TENT_SIZES, type TentSize } from './sizes'
-import { FeatherFlag } from './FeatherFlag'
+import { Flag } from './Flag'
 import { TableCover } from './TableCover'
 
-/** The full event-display kit: canopy tent, a matched pair of feather flags,
+/** The full event-display kit: canopy tent, a matched pair of 12 ft flags,
  *  and a table cover — all printed with the same uploaded artwork. */
 export function EventDisplay({
   print,
   logo,
   tentSize = '10x10',
+  walls = 'none',
 }: {
   print: HTMLImageElement | null
   logo: HTMLImageElement | null
   tentSize?: TentSize
+  walls?: WallMode
 }) {
   const { w, d } = TENT_SIZES[tentSize]
 
@@ -22,10 +24,10 @@ export function EventDisplay({
 
   return (
     <group>
-      <Canopy print={print} logo={logo} size={tentSize} />
+      <Canopy print={print} logo={logo} size={tentSize} walls={walls} />
 
-      <FeatherFlag print={print} logo={logo} position={[-flagX, 0, -0.2]} side={-1} />
-      <FeatherFlag print={print} logo={logo} position={[flagX, 0, -0.2]} side={1} />
+      <Flag print={print} logo={logo} size="12ft" position={[-flagX, 0, -0.2]} side={-1} />
+      <Flag print={print} logo={logo} size="12ft" position={[flagX, 0, -0.2]} side={1} />
 
       {/* Table sits in front of the tent, facing the camera. */}
       <group position={[0, 0, tableZ]}>

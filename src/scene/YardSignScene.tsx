@@ -1,58 +1,18 @@
 import { useMemo } from 'react'
 import { YardSign } from './YardSign'
+import { GrassGround, type ClearRect } from './Ground'
 import type { YardSignSize } from './sizes'
 
 const GRASS_R = 4.2
 
-/** Deterministic PRNG so tuft placement is stable across re-renders. */
-function makeRng(seed: number) {
-  return () => {
-    seed = (seed * 16807) % 2147483647
-    return seed / 2147483647
-  }
-}
-
-/** A round lawn: flat green disc scattered with low-poly grass tufts. */
-function GrassPatch() {
-  const tufts = useMemo(() => {
-    const rand = makeRng(1337)
-    const colors = ['#5f9e43', '#6fae4e', '#7cb85a']
-    const out: { pos: [number, number, number]; s: number; color: string }[] = []
-    while (out.length < 60) {
-      const a = rand() * Math.PI * 2
-      const r = 0.55 + rand() * (GRASS_R - 0.85)
-      const x = Math.cos(a) * r
-      const z = Math.sin(a) * r
-      // Keep tufts off the road strip.
-      if (Math.abs(z - ROAD_Z) < ROAD_W / 2 + 0.15) continue
-      out.push({
-        pos: [x, 0.055, z],
-        s: 0.7 + rand() * 0.8,
-        color: colors[Math.floor(rand() * colors.length)],
-      })
-    }
-    return out
-  }, [])
-
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[GRASS_R, 48]} />
-        <meshStandardMaterial color="#71ad50" roughness={1} />
-      </mesh>
-      {tufts.map((t, i) => (
-        <mesh key={i} position={t.pos} scale={t.s}>
-          <coneGeometry args={[0.05, 0.14, 5]} />
-          <meshStandardMaterial color={t.color} flatShading roughness={1} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
-
 const ROAD_Z = 1.7 // road centreline, in front of the sign
 const ROAD_W = 1.5 // asphalt width
 const ROAD_LEN = 6.8
+
+/** Keep grass tufts off the asphalt. */
+const ROAD_CLEAR: ClearRect[] = [
+  { x: 0, z: ROAD_Z, hw: ROAD_LEN, hd: ROAD_W / 2 + 0.15 },
+]
 
 /** A straight asphalt road running past the sign, with markings. */
 function Road() {
@@ -103,7 +63,7 @@ export function YardSignScene({
 }) {
   return (
     <group>
-      <GrassPatch />
+      <GrassGround radius={GRASS_R} clear={ROAD_CLEAR} />
       <Road />
       {/* Slightly enlarged so the sign reads well in the scene,
           turned 60° left toward oncoming traffic. */}

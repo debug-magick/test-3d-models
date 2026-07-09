@@ -1,12 +1,18 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { LIME, NAVY, POLE, makeAlphaTexture, makeFittedTexture } from './print'
+import { LIME, NAVY, makeAlphaTexture, makeFittedTexture } from './print'
 import { TENT_SIZES, type TentSize } from './sizes'
+
+/** Optional tent walls: none, a printed back wall, half-height walls all round,
+ *  or full-height walls on the back and both sides (front stays open). */
+export type WallMode = 'none' | 'back' | 'half' | 'full'
 
 const LEG_H = 2.2 // leg height (eave height)
 const VALANCE_H = 0.58 // hanging valance band height
 const ROOF_H = 1.2 // apex height above the eaves
 const LOGO_SIZE = 0.62
+const LEG_COLOR = '#f4f5f7' // white powder-coated frame
+const HALF_WALL_H = 0.95
 
 /** The Packeze logo printed onto one roof slope. */
 function RoofLogo({
@@ -41,16 +47,20 @@ export function Canopy({
   print,
   logo,
   size = '10x10',
+  walls = 'none',
 }: {
   print: HTMLImageElement | null
   logo: HTMLImageElement | null
   size?: TentSize
+  walls?: WallMode
 }) {
   const { w: W, d: D } = TENT_SIZES[size]
   const halfW = W / 2
   const halfD = D / 2
   const legW = halfW - 0.1
   const legD = halfD - 0.1
+  const wallH = walls === 'half' ? HALF_WALL_H : LEG_H
+  const sideWalls = walls === 'half' || walls === 'full'
 
   // The valance is a wide, short band — "contain" keeps the artwork at its
   // natural proportions, centred on navy fabric, instead of crop-zooming it.
@@ -64,6 +74,19 @@ export function Canopy({
     [print, D],
   )
   const logoTex = useMemo(() => (logo ? makeAlphaTexture(logo) : null), [logo])
+  // Wall graphics: back wall spans the width, side walls span the depth.
+  const backWallTex = useMemo(
+    () =>
+      print && walls !== 'none'
+        ? makeFittedTexture(print, W / wallH, 'contain')
+        : null,
+    [print, W, wallH, walls],
+  )
+  const sideWallTex = useMemo(
+    () =>
+      print && sideWalls ? makeFittedTexture(print, D / wallH, 'contain') : null,
+    [print, D, wallH, sideWalls],
+  )
 
   const roofGeo = useMemo(() => {
     // Unit square pyramid (half-width 1, height 1) — scaled to the footprint.
@@ -90,11 +113,11 @@ export function Canopy({
 
   return (
     <group>
-      {/* Legs */}
+      {/* Legs — slim white powder-coated frame */}
       {legPositions.map(([x, z], i) => (
         <mesh key={i} position={[x, LEG_H / 2, z]} castShadow>
-          <cylinderGeometry args={[0.045, 0.05, LEG_H, 16]} />
-          <meshStandardMaterial color={POLE} metalness={0.85} roughness={0.35} />
+          <cylinderGeometry args={[0.026, 0.03, LEG_H, 16]} />
+          <meshStandardMaterial color={LEG_COLOR} metalness={0.3} roughness={0.5} />
         </mesh>
       ))}
 
@@ -137,6 +160,41 @@ export function Canopy({
           <meshStandardMaterial color={LIME} roughness={0.6} />
         </mesh>
       ))}
+
+      {/* Walls — back always, sides on half/full. Front stays open. */}
+      {walls !== 'none' && (
+        <>
+          <mesh position={[0, wallH / 2, -halfD]} receiveShadow>
+            <planeGeometry args={[W, wallH]} />
+            <meshStandardMaterial
+              color={backWallTex ? '#ffffff' : NAVY}
+              map={backWallTex}
+              roughness={0.9}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+          {sideWalls &&
+            [
+              { x: -halfW, rotY: Math.PI / 2 },
+              { x: halfW, rotY: -Math.PI / 2 },
+            ].map((s) => (
+              <mesh
+                key={s.x}
+                position={[s.x, wallH / 2, 0]}
+                rotation={[0, s.rotY, 0]}
+                receiveShadow
+              >
+                <planeGeometry args={[D, wallH]} />
+                <meshStandardMaterial
+                  color={sideWallTex ? '#ffffff' : NAVY}
+                  map={sideWallTex}
+                  roughness={0.9}
+                  side={THREE.DoubleSide}
+                />
+              </mesh>
+            ))}
+        </>
+      )}
 
       {/* Printed valance band hanging from the eaves */}
       {valanceSides.map((s, i) => (
