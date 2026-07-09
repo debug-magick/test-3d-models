@@ -1,0 +1,156 @@
+.app {
+  position: fixed;
+  inset: 0;
+  background: #eef2f7;
+}
+
+.app canvas {
+  display: block;
+  touch-action: none;
+}
+
+.panel {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 260px;
+  padding: 18px 18px 20px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(33, 64, 107, 0.12);
+  box-shadow: 0 12px 30px -12px rgba(20, 40, 70, 0.35);
+  color: #21406b;
+  user-select: none;
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.panel .hint {
+  margin: 4px 0 16px;
+  font-size: 12.5px;
+  color: #6d7c93;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.field > span {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6d7c93;
+}
+
+.selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.selector.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.sel {
+  padding: 8px 6px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid rgba(33, 64, 107, 0.15);
+  background: #eef1f6;
+  color: #6d7c93;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.sel:hover {
+  background: #e2e8f1;
+}
+.sel.on {
+  background: #21406b;
+  border-color: #21406b;
+  color: #fff;
+}
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: #21406b;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.upload-btn:hover {
+  background: #2b5089;
+}
+
+.file-name {
+  font-size: 11.5px;
+  color: #8a97ac;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: #bcd63e;
+  cursor: pointer;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.row button {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.toggle {
+  background: #eef1f6;
+  color: #6d7c93;
+  border-color: rgba(33, 64, 107, 0.12);
+}
+.toggle.on {
+  background: #bcd63e;
+  color: #23350a;
+}
+
+.ghost {
+  background: transparent;
+  color: #21406b;
+  border-color: rgba(33, 64, 107, 0.25);
+}
+.ghost:hover {
+  background: rgba(33, 64, 107, 0.06);
+}
+
+@media (max-width: 560px) {
+  .panel {
+    width: calc(100vw - 40px);
+  }
+}
