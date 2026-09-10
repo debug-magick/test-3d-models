@@ -1,89 +1,45 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { NAVY, POLE, makeAlphaTexture, makeFittedTexture } from './print'
+import { makeBrandTexture, makeFittedTexture } from './print'
+import { FabricMaterial, FrameBar } from './materials'
+import { useDispose } from './resources'
 
-const BW = 0.85 // banner width (~33")
-const BH = 2.0 // banner height (~80")
-const BASE_H = 0.06 // base thickness
-const PANEL_Y = BASE_H // panel bottom sits on the base
+const W = 0.85, H = 2
 
-/**
- * A retractable roll-up banner stand: a weighted base, a slim back pole and a
- * tall portrait graphic. The print faces +Z; the Packeze logo sits at the top.
- */
-export function RollUpBanner({
-  print,
-  logo = null,
-  position = [0, 0, 0],
-  rotation = [0, 0, 0],
-}: {
-  print: HTMLImageElement | null
-  logo?: HTMLImageElement | null
-  position?: [number, number, number]
-  rotation?: [number, number, number]
+export function RollUpBanner({ print, position = [0, 0, 0], rotation = [0, 0, 0] }: {
+  print: HTMLImageElement | null; logo?: HTMLImageElement | null
+  position?: [number, number, number]; rotation?: [number, number, number]
 }) {
-  const tex = useMemo(
-    () => (print ? makeFittedTexture(print, BW / BH, 'contain') : null),
-    [print],
-  )
-  const logoTex = useMemo(() => (logo ? makeAlphaTexture(logo) : null), [logo])
-
-  // BoxGeometry material order: +X, -X, +Y, -Y, +Z (front), -Z (back).
-  const panelMats = useMemo(() => {
-    const edge = new THREE.MeshStandardMaterial({ color: '#c9ccd3', roughness: 0.5 })
-    const back = new THREE.MeshStandardMaterial({ color: '#2c2f35', roughness: 0.8 })
-    const front = new THREE.MeshStandardMaterial({
-      color: tex ? '#ffffff' : NAVY,
-      map: tex,
-      roughness: 0.85,
-    })
-    return [edge, edge, edge, edge, front, back]
-  }, [tex])
-
-  return (
-    <group position={position} rotation={rotation}>
-      {/* Weighted base */}
-      <mesh position={[0, BASE_H / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[BW + 0.08, BASE_H, 0.3]} />
-        <meshStandardMaterial color="#33363c" metalness={0.6} roughness={0.4} />
-      </mesh>
-      {/* Rounded end caps on the base */}
-      {[-1, 1].map((s) => (
-        <mesh key={s} position={[s * (BW / 2 + 0.04), BASE_H / 2, 0]}>
-          <cylinderGeometry args={[BASE_H / 2, BASE_H / 2, 0.3, 16]} />
-          <meshStandardMaterial color="#33363c" metalness={0.6} roughness={0.4} />
-        </mesh>
-      ))}
-
-      {/* Slim back support pole */}
-      <mesh position={[BW / 2 - 0.05, PANEL_Y + BH / 2, -0.06]} castShadow>
-        <cylinderGeometry args={[0.012, 0.012, BH, 12]} />
-        <meshStandardMaterial color={POLE} metalness={0.85} roughness={0.3} />
-      </mesh>
-
-      {/* Graphic panel */}
-      <mesh
-        position={[0, PANEL_Y + BH / 2, 0]}
-        material={panelMats}
-        castShadow
-        receiveShadow
-      >
-        <boxGeometry args={[BW, BH, 0.02]} />
-      </mesh>
-
-      {/* Aluminium top rail */}
-      <mesh position={[0, PANEL_Y + BH + 0.015, 0]}>
-        <boxGeometry args={[BW + 0.03, 0.03, 0.05]} />
-        <meshStandardMaterial color={POLE} metalness={0.85} roughness={0.3} />
-      </mesh>
-
-      {/* Packeze logo near the top of the graphic */}
-      {logoTex && (
-        <mesh position={[0, PANEL_Y + BH * 0.88, 0.012]}>
-          <planeGeometry args={[0.34, 0.34]} />
-          <meshStandardMaterial map={logoTex} transparent alphaTest={0.05} roughness={0.85} />
-        </mesh>
-      )}
-    </group>
-  )
+  const texture = useMemo(() => print ? makeFittedTexture(print, W / H) : makeBrandTexture(W / H, true), [print])
+  const geometry = useMemo(() => {
+    const g = new THREE.PlaneGeometry(W, H, 16, 48)
+    const p = g.attributes.position
+    for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin((p.getY(i) / H + 0.5) * Math.PI) * 0.018)
+    g.computeVertexNormals()
+    return g
+  }, [])
+  useDispose(texture)
+  useDispose(geometry)
+  return <group position={position} rotation={rotation}>
+    {[-0.28, 0.28].map(x => <mesh key={x} position={[x, 0.013, 0]} castShadow receiveShadow>
+      <boxGeometry args={[0.055, 0.026, 0.42]} />
+      <meshStandardMaterial color="#b3bbc1" metalness={0.9} roughness={0.3} />
+    </mesh>)}
+    <mesh position={[0, 0.065, 0]} rotation={[0, 0, Math.PI / 2]} scale={[1, 1, 2.1]} castShadow receiveShadow>
+      <cylinderGeometry args={[0.05, 0.05, W + 0.07, 24]} />
+      <meshStandardMaterial color="#bec5ca" metalness={0.85} roughness={0.32} />
+    </mesh>
+    {[-1, 1].map(s => <mesh key={s} position={[s * (W / 2 + 0.04), 0.065, 0]} rotation={[0, 0, Math.PI / 2]} scale={[1, 1, 2.1]}>
+      <cylinderGeometry args={[0.05, 0.05, 0.02, 24]} />
+      <meshStandardMaterial color="#353a40" roughness={0.7} />
+    </mesh>)}
+    <FrameBar start={[0, 0.07, -0.07]} end={[0, H + 0.1, -0.07]} radius={0.011} />
+    <mesh geometry={geometry} position={[0, H / 2 + 0.1, 0]} castShadow receiveShadow>
+      <FabricMaterial map={texture} color="white" roughness={0.76} sheen={0.1} />
+    </mesh>
+    <mesh position={[0, H + 0.1, 0]} castShadow>
+      <boxGeometry args={[W + 0.015, 0.022, 0.027]} />
+      <meshStandardMaterial color="#c9cfd4" metalness={0.9} roughness={0.26} />
+    </mesh>
+  </group>
 }

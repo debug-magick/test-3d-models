@@ -52,8 +52,17 @@ export function makeFittedTexture(
   const ih = img.naturalHeight
   const scale =
     mode === 'contain' ? Math.min(w / iw, h / ih) : Math.max(w / iw, h / ih)
-  const dw = iw * scale
+  let dw = iw * scale
   const dh = ih * scale
+
+  // When 'contain' leaves wide side bands (the artwork is much narrower than
+  // the panel), gently widen the design toward the panel so it doesn't float
+  // in a sea of fabric. Only closes up to ~65% of the empty width, so the
+  // image is nudged wider without looking obviously stretched.
+  if (mode === 'contain' && dw < w) {
+    dw += (w - dw) * 0.65
+  }
+
   ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh)
 
   const tex = new THREE.CanvasTexture(canvas)
@@ -61,6 +70,45 @@ export function makeFittedTexture(
   tex.anisotropy = 8
   tex.needsUpdate = true
   return tex
+}
+
+/** Sample branding that reads like a finished printed product, at any aspect. */
+export function makeBrandTexture(aspect: number, vertical = false): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 1024
+  canvas.height = Math.min(2048, Math.round(1024 / aspect))
+  const ctx = canvas.getContext('2d')!
+  const { width: w, height: h } = canvas
+  ctx.fillStyle = NAVY
+  ctx.fillRect(0, 0, w, h)
+  ctx.fillStyle = '#294b78'
+  ctx.beginPath()
+  ctx.moveTo(w * 0.62, h)
+  ctx.lineTo(w, h * 0.1)
+  ctx.lineTo(w, h)
+  ctx.fill()
+  ctx.fillStyle = LIME
+  ctx.fillRect(0, h * 0.94, w, h * 0.025)
+  ctx.save()
+  ctx.translate(w / 2, h * 0.48)
+  if (vertical) ctx.rotate(-Math.PI / 2)
+  const width = vertical ? h * 0.76 : w * 0.73
+  const fontSize = Math.min(width / 4.3, (vertical ? w : h) * 0.45)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `800 ${fontSize}px Arial, sans-serif`
+  ctx.fillText('packeze', 0, 0)
+  if (!vertical && aspect < 4) {
+    ctx.font = `500 ${fontSize * 0.12}px Arial, sans-serif`
+    ctx.fillStyle = '#d3deec'
+    ctx.fillText('MAKE YOUR BRAND SEEN.', 0, fontSize * 0.72)
+  }
+  ctx.restore()
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 8
+  return texture
 }
 
 /**

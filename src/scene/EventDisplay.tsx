@@ -18,9 +18,9 @@ export function EventDisplay({
 }) {
   const { w, d } = TENT_SIZES[tentSize]
 
-  // Flags frame the tent; the table sits out front — both follow the footprint.
-  const flagX = w / 2 + 1.6
-  const tableZ = d / 2 + 0.7
+  // Keep the table clear of the extra front leg on the wider frames.
+  const flagX = w / 2 + 0.7
+  const tableZ = w > 4 ? d / 2 + 0.55 : d / 2 - 0.38
 
   return (
     <group>

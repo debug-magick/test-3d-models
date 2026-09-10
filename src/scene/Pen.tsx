@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
+import { useDispose } from './resources'
 
 const BODY = '#1b1c1e' // satin-black barrel
 
@@ -47,8 +48,8 @@ const LIME = '#bcd63e' // accent ring by the nib
 
 // Resting pose: nib points toward the camera, the back lifts off the desk.
 const YAW = Math.PI - 0.6
-const TILT = 0.17 // raises the stylus (back) end
-const LIFT = R + 0.0018 + Math.sin(TILT) * (PEN_L / 2)
+const TILT = 0.025 // raises the stylus (back) end
+const LIFT = R + 0.0009
 
 /** A stylus ballpoint pen resting on the surface, print on the upper barrel. */
 export function Pen({ print }: { print: HTMLImageElement | null }) {
@@ -56,6 +57,8 @@ export function Pen({ print }: { print: HTMLImageElement | null }) {
     () => (print ? makeBarrelTexture(print, 2 * Math.PI * R, BODY_H) : null),
     [print],
   )
+
+  useDispose(tex)
 
   // Segment centres, stacking bottom-up from y=0.
   const grip = TIP_H + GRIP_H / 2
@@ -72,12 +75,12 @@ export function Pen({ print }: { print: HTMLImageElement | null }) {
         <group position={[0, -PEN_L / 2, 0]}>
         {/* Tapered nib — barrel radius at the top, narrowing to the tip */}
         <mesh position={[0, TIP_H / 2, 0]} castShadow>
-          <cylinderGeometry args={[R * 0.92, 0.0012, TIP_H, 32]} />
+          <cylinderGeometry args={[R * 0.92, 0.0006, TIP_H, 32]} />
           <meshStandardMaterial {...chrome} roughness={0.3} />
         </mesh>
         {/* Ball point */}
         <mesh position={[0, 0.0006, 0]}>
-          <sphereGeometry args={[0.0014, 12, 8]} />
+          <sphereGeometry args={[0.00065, 12, 8]} />
           <meshStandardMaterial color="#3a3d42" metalness={0.8} roughness={0.3} />
         </mesh>
 
@@ -90,9 +93,14 @@ export function Pen({ print }: { print: HTMLImageElement | null }) {
         {/* Lower barrel — coloured grip */}
         <mesh position={[0, grip, 0]} castShadow>
           <cylinderGeometry args={[R, R, GRIP_H, 32]} />
-          <meshStandardMaterial color={GRIP} metalness={0.15} roughness={0.5} />
+          <meshStandardMaterial color={GRIP} metalness={0.15} roughness={0.62} />
         </mesh>
 
+        {/* Fine recessed grip rings catch highlights at close range. */}
+        {Array.from({ length: 8 }, (_, i) => <mesh key={i} position={[0, TIP_H + 0.012 + i * 0.004, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[R, 0.00012, 6, 32]} />
+          <meshStandardMaterial color="#1c3868" roughness={0.72} />
+        </mesh>)}
         {/* Chrome mid band */}
         <mesh position={[0, ring, 0]}>
           <cylinderGeometry args={[R * 1.03, R * 1.03, RING_H, 32]} />
@@ -103,6 +111,7 @@ export function Pen({ print }: { print: HTMLImageElement | null }) {
         <mesh position={[0, body, 0]} castShadow>
           <cylinderGeometry args={[R, R, BODY_H, 32]} />
           <meshStandardMaterial
+            key={tex ? 'textured' : 'plain'}
             color={tex ? '#ffffff' : BODY}
             map={tex}
             metalness={0.25}

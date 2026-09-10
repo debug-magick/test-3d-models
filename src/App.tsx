@@ -1,514 +1,251 @@
-import { useEffect, useRef, useState } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import { ContactShadows, OrbitControls, PerspectiveCamera } from '@react-three/drei'
-import type { Group } from 'three'
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { ContactShadows, PerformanceMonitor } from '@react-three/drei'
+import { ACESFilmicToneMapping, PCFSoftShadowMap, MathUtils } from 'three'
 import { EventDisplay } from './scene/EventDisplay'
 import { PremiumKit } from './scene/PremiumKit'
 import { Canopy, type WallMode } from './scene/Canopy'
 import { Flag, type FlagShape } from './scene/Flag'
 import { TableCover } from './scene/TableCover'
-import { YardSignScene } from './scene/YardSignScene'
+import { YardSign } from './scene/YardSign'
 import { Pen } from './scene/Pen'
-import { FloorGround, GrassGround, type ClearRect } from './scene/Ground'
-import {
-  FLAG_SIZES,
-  TENT_SIZES,
-  YARD_SIGN_SIZES,
-  type FlagSize,
-  type TentSize,
-  type YardSignSize,
-} from './scene/sizes'
+import { GrassGround, WorldGround, type EnvironmentMode } from './scene/Ground'
+import { Lighting } from './scene/Lighting'
+import { CameraRig, type Framing } from './scene/CameraRig'
+import { WindContext, WindState } from './scene/motion'
+import { FLAG_SIZES, TENT_SIZES, YARD_SIGN_SIZES, type FlagSize, type TentSize, type YardSignSize } from './scene/sizes'
 import { loadImage } from './scene/print'
 import logoUrl from './assets/packeze-favicon.webp'
+import sampleUrl from './assets/event-display/Screenshot 2026-05-26 at 6.00.32 PM 2-1781915438822(1).png'
 import './App.css'
 
-const SCALE_MIN = 0.4
-const SCALE_MAX = 2.2
+const ZOOM_MIN = 0.55, ZOOM_MAX = 1.8
+const MODELS = {
+  kit: { label: 'Full kit', title: 'Your next event. Reimagined.', detail: 'Canopy, feather flags & fitted table cover', number: '01' },
+  premium: { label: 'Premium kit', title: 'Make a bigger impression.', detail: '10 × 20 ft canopy, flags, banners & two tables', number: '02' },
+  canopy: { label: 'Canopy tent', title: 'A space of your own.', detail: 'Printed canopy with an aluminum folding frame', number: '03' },
+  flag: { label: 'Flag', title: 'Made to stand out.', detail: 'Lightweight printed fabric & a flexible pole', number: '04' },
+  table: { label: 'Table cover', title: 'Every detail, covered.', detail: '6 ft stretch-fit cover with tensioned corners', number: '05' },
+  yard: { label: 'Yard sign', title: 'Get your message out there.', detail: 'Corrugated sign panel & galvanized wire stake', number: '06' },
+  pen: { label: 'Stylus pen', title: 'A little everyday impact.', detail: 'Printed barrel, chrome accents & a soft stylus', number: '07' },
+}
+type ModelKey = keyof typeof MODELS
+const WALLS: { key: WallMode; label: string }[] = [{ key: 'none', label: 'Open' }, { key: 'back', label: 'Back wall' }, { key: 'half', label: 'Side skirts' }, { key: 'full', label: 'Full walls' }]
+const SPEEDS = { slow: 0.25, normal: 0.55, fast: 1.1 }
+const TABLE_CLEAR = [{ x: 0, z: 0, hw: 1, hd: 0.5 }]
+const PREMIUM_CLEAR = [{ x: 0, z: 1.35, hw: 2.2, hd: 0.6 }, { x: 5.55, z: 0.5, hw: 0.6, hd: 0.3 }, { x: -5.55, z: 0.5, hw: 0.6, hd: 0.3 }]
 
-type ModelKey = 'kit' | 'premium' | 'canopy' | 'flag' | 'table' | 'yard' | 'pen'
-
-/** Per-model camera framing so each preview opens nicely composed. */
-const MODELS: Record<
-  ModelKey,
-  { label: string; camera: [number, number, number]; target: [number, number, number] }
-> = {
-  kit: { label: 'Full kit', camera: [5.5, 3.2, 8.5], target: [0, 1.5, 0] },
-  premium: { label: 'Premium kit', camera: [7.8, 4.3, 12], target: [0, 1.6, 0] },
-  canopy: { label: 'Canopy tent', camera: [4.4, 2.7, 6.6], target: [0, 1.6, 0] },
-  // Flag target sits on the pole (x=0), so orbiting spins around the pole;
-  // the target height follows the configured flag size (see baseTarget).
-  flag: { label: 'Flag', camera: [3.2, 2.4, 5.2], target: [0, 1.7, 0] },
-  table: { label: 'Table cover', camera: [1.7, 1.2, 2.9], target: [0, 0.55, 0] },
-  yard: { label: 'Yard sign', camera: [2.9, 1.7, 4.2], target: [0, 0.85, 0] },
-  pen: { label: 'Stylus pen', camera: [0.14, 0.12, 0.22], target: [0, 0.012, 0] },
+function Icon({ name, size = 18 }: { name: 'upload' | 'rotate' | 'reset' | 'sun' | 'studio' | 'arrow' | 'pause' | 'check'; size?: number }) {
+  const paths = {
+    upload: <><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5" /></>,
+    rotate: <><path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5" /></>,
+    reset: <><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6" /></>,
+    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1" /></>,
+    studio: <><path d="m12 3 9 5v9l-9 5-9-5V8l9-5ZM3 8l9 5 9-5m-9 5v9" /></>,
+    arrow: <path d="M5 12h14m-5-5 5 5-5 5" />,
+    pause: <><path d="M8 5v14M16 5v14" /></>,
+    check: <path d="m5 12 4 4L19 6" />,
+  }
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
-/** Keep grass tufts from poking through the kit's table cover. */
-const KIT_CLEAR: ClearRect[] = [{ x: 0, z: 2.22, hw: 1.15, hd: 0.65 }]
+function Choices<T extends string>({ value, options, onChange, columns = 2 }: { value: T; options: { key: T; label: string }[]; onChange: (value: T) => void; columns?: number }) {
+  return <div className="selector" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+    {options.map(option => <button key={option.key} className={value === option.key ? 'sel on' : 'sel'} aria-pressed={value === option.key} onClick={() => onChange(option.key)}>{option.label}</button>)}
+  </div>
+}
 
-/** Keep grass tufts out of the premium kit's tables and banner bases. */
-const PREMIUM_CLEAR: ClearRect[] = [
-  { x: 0, z: 1.35, hw: 2.35, hd: 0.7 },
-  { x: 5.55, z: 0.5, hw: 0.6, hd: 0.25 },
-  { x: -5.55, z: 0.5, hw: 0.6, hd: 0.25 },
-]
-
-type Controls = React.ComponentRef<typeof OrbitControls>
-
-const smoothstep = (t: number) =>
-  t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t)
-
-/**
- * Owns the model group's animation:
- *  - eases the logical (user) scale with frame-rate-independent damping;
- *  - plays the model-switch transition — shrinking the current model away while
- *    a new one is pending, committing the swap while it's hidden, then growing
- *    the new model back in;
- *  - keeps the orbit target glued to the model's centre at any scale.
- */
-function ScaleRig({
-  scale,
-  baseTarget,
-  controlsRef,
-  active,
-  target,
-  onCommit,
-  children,
-}: {
-  scale: number
-  baseTarget: [number, number, number]
-  controlsRef: React.RefObject<Controls | null>
-  active: ModelKey
-  target: ModelKey
-  onCommit: () => void
-  children: React.ReactNode
-}) {
-  const group = useRef<Group>(null)
-  const eased = useRef(scale) // logical user scale
-  const trans = useRef(0) // 0 hidden → 1 shown; starts hidden for an intro pop
-
-  useFrame((_, dt) => {
-    const g = group.current
-    if (!g) return
-
-    // Ease the user scale.
-    const de = scale - eased.current
-    eased.current += Math.abs(de) < 0.0005 ? de : de * (1 - Math.exp(-dt * 9))
-
-    // Drive the switch transition and commit the swap while hidden.
-    const switching = target !== active
-    trans.current +=
-      ((switching ? 0 : 1) - trans.current) * (1 - Math.exp(-dt * 16))
-    if (switching && trans.current < 0.04) onCommit()
-
-    g.scale.setScalar(eased.current * smoothstep(trans.current))
-
-    const c = controlsRef.current
-    if (c) {
-      c.target.set(
-        baseTarget[0] * eased.current,
-        baseTarget[1] * eased.current,
-        baseTarget[2] * eased.current,
-      )
-    }
+function Wind({ enabled, reducedMotion, children }: { enabled: boolean; reducedMotion: boolean; children: ReactNode }) {
+  const wind = useMemo(() => new WindState(), [])
+  const invalidate = useThree(state => state.invalidate)
+  useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.05)
+    wind.update(dt, enabled, reducedMotion)
+    if (enabled || wind.strength.value > 0.001) invalidate()
   })
-
-  return <group ref={group}>{children}</group>
+  return <WindContext.Provider value={wind}>{children}</WindContext.Provider>
 }
 
-type RotateSpeed = 'slow' | 'normal' | 'fast'
-
-const ROTATE_SPEEDS: Record<RotateSpeed, { label: string; value: number }> = {
-  slow: { label: 'Slow', value: 0.35 },
-  normal: { label: 'Normal', value: 0.8 },
-  fast: { label: 'Fast', value: 2.2 },
+class PreviewBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    return this.state.failed ? <div className="preview-error"><Icon name="studio" size={32} /><h2>The 3D preview couldn’t start.</h2><p>Try reloading in a browser with WebGL enabled.</p><button className="sel" onClick={() => window.location.reload()}>Reload preview</button></div> : this.props.children
+  }
 }
-
-const WALL_MODES: { key: WallMode; label: string }[] = [
-  { key: 'none', label: 'None' },
-  { key: 'back', label: 'Back wall' },
-  { key: 'half', label: 'Half walls' },
-  { key: 'full', label: 'Full walls' },
-]
-
-/** Tent models that can take wall configurations. */
-const TENT_MODELS: ModelKey[] = ['kit', 'premium', 'canopy']
-
-const FLAG_SHAPES: { key: FlagShape; label: string }[] = [
-  { key: 'feather', label: 'Feather' },
-  { key: 'teardrop', label: 'Teardrop' },
-  { key: 'rectangle', label: 'Rectangle' },
-]
 
 export default function App() {
-  const [printUrl, setPrintUrl] = useState<string>('')
   const [printImage, setPrintImage] = useState<HTMLImageElement | null>(null)
-  const [fileName, setFileName] = useState<string>('No design — upload artwork')
-  const [scale, setScale] = useState(1)
+  const [fileName, setFileName] = useState('Packeze sample branding')
+  const [uploadError, setUploadError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
   const [autoRotate, setAutoRotate] = useState(true)
-  const [rotateSpeed, setRotateSpeed] = useState<RotateSpeed>('normal')
-  // `model` is what the selector requests; `active` is what's on screen. They
-  // differ briefly during the switch transition (see ScaleRig).
+  const [breeze, setBreeze] = useState(true)
+  const [speed, setSpeed] = useState<keyof typeof SPEEDS>('normal')
   const [model, setModel] = useState<ModelKey>('kit')
   const [active, setActive] = useState<ModelKey>('kit')
-  const view = MODELS[active]
-
-  // Second-level model configuration.
   const [tentSize, setTentSize] = useState<TentSize>('10x10')
   const [walls, setWalls] = useState<WallMode>('none')
   const [flagShape, setFlagShape] = useState<FlagShape>('feather')
   const [flagSize, setFlagSize] = useState<FlagSize>('10ft')
   const [yardSize, setYardSize] = useState<YardSignSize>('18x24')
   const [yardDoubleSided, setYardDoubleSided] = useState(true)
+  const [environment, setEnvironment] = useState<EnvironmentMode>('studio')
+  const [reset, setReset] = useState(0)
+  const [dpr, setDpr] = useState(Math.min(window.devicePixelRatio, 1.5))
+  const [logo, setLogo] = useState<HTMLImageElement | null>(null)
+  const uploadSequence = useRef(0)
+  const mounted = useRef(true)
+  const viewport = useRef<HTMLDivElement>(null)
+  const touch = useRef<{ distance: number; zoom: number } | null>(null)
 
-  // The flag preview's orbit centre follows the configured flag height.
-  const baseTarget: [number, number, number] =
-    active === 'flag' ? [0, FLAG_SIZES[flagSize].h * 0.55, 0] : view.target
-
-  // Packeze brand logo, printed on the tent top and flag tops.
-  const [logoImage, setLogoImage] = useState<HTMLImageElement | null>(null)
   useEffect(() => {
-    loadImage(logoUrl).then(setLogoImage).catch(() => setLogoImage(null))
+    let live = true
+    mounted.current = true
+    loadImage(logoUrl).then(image => { if (live) setLogo(image) }).catch(() => {})
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const change = () => setReducedMotion(query.matches)
+    query.addEventListener('change', change)
+    return () => { live = false; mounted.current = false; query.removeEventListener('change', change) }
+  }, [])
+  useEffect(() => {
+    if (model === active) return
+    const timeout = window.setTimeout(() => { setActive(model); setZoom(1) }, reducedMotion ? 0 : 180)
+    return () => window.clearTimeout(timeout)
+  }, [model, active, reducedMotion])
+  useEffect(() => {
+    const node = viewport.current
+    if (!node) return
+    const wheel = (event: WheelEvent) => {
+      if (!(event.target instanceof HTMLCanvasElement)) return
+      event.preventDefault()
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientHeight : 1)
+      setZoom(z => MathUtils.clamp(z * Math.exp(-MathUtils.clamp(delta, -180, 180) * 0.0014), ZOOM_MIN, ZOOM_MAX))
+    }
+    node.addEventListener('wheel', wheel, { passive: false })
+    return () => node.removeEventListener('wheel', wheel)
   }, [])
 
-  const controls = useRef<React.ComponentRef<typeof OrbitControls>>(null)
-  const objectUrl = useRef<string | null>(null)
-
-  // (Re)load the print whenever the source URL changes. Empty = no design
-  // (surfaces stay navy fabric); uploads only ever set a real blob URL.
-  useEffect(() => {
-    if (!printUrl) return
-    let alive = true
-    loadImage(printUrl)
-      .then((img) => alive && setPrintImage(img))
-      .catch(() => alive && setPrintImage(null))
-    return () => {
-      alive = false
+  async function applyArtwork(url: string, name: string, revoke = false) {
+    const request = ++uploadSequence.current
+    setLoading(true)
+    setUploadError('')
+    try {
+      const image = await loadImage(url)
+      if (mounted.current && request === uploadSequence.current) { setPrintImage(image); setFileName(name) }
+    } catch {
+      if (mounted.current && request === uploadSequence.current) setUploadError('This image couldn’t be opened. Try a PNG, JPG or WebP file.')
+    } finally {
+      if (revoke) URL.revokeObjectURL(url)
+      if (mounted.current && request === uploadSequence.current) setLoading(false)
     }
-  }, [printUrl])
-
-  // Clean up any blob URL we created on unmount.
-  useEffect(() => {
-    return () => {
-      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current)
-    }
-  }, [])
-
-  // Mouse wheel scales the model itself (not the camera), so the slider and
-  // the wheel always drive — and reflect — the same value.
-  function onWheel(e: React.WheelEvent) {
-    setScale((s) =>
-      Math.min(SCALE_MAX, Math.max(SCALE_MIN, s * Math.exp(-e.deltaY * 0.0012))),
-    )
   }
-
-  function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+  function upload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
     if (!file) return
-    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current)
-    const url = URL.createObjectURL(file)
-    objectUrl.current = url
-    setPrintUrl(url)
-    setFileName(file.name)
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 20 * 1024 * 1024) {
+      setUploadError('Choose a PNG, JPG or WebP image under 20 MB.')
+      return
+    }
+    void applyArtwork(URL.createObjectURL(file), file.name, true)
   }
 
-  return (
-    <div className="app" onWheel={onWheel}>
-      <Canvas shadows dpr={[1, 2]}>
-        {/* Remount the camera when the model changes so each preview reframes.
-            The pen is centimetres across, so it needs a much closer near plane. */}
-        <PerspectiveCamera
-          key={active}
-          makeDefault
-          fov={42}
-          near={active === 'pen' ? 0.01 : 0.1}
-          position={view.camera}
-        />
-        <color attach="background" args={['#eef2f7']} />
-        <fog attach="fog" args={['#eef2f7', 20, 44]} />
+  const framing: Framing = useMemo(() => {
+    if (active === 'pen') return { target: [0, 0.016, 0], radius: 0.075, width: 0.145, height: 0.025, depth: 0.04 }
+    if (active === 'table') return { target: [0, 0.4, 0], radius: 1.05, width: 1.83, height: 0.74, depth: 0.76 }
+    if (active === 'yard') { const s = YARD_SIGN_SIZES[yardSize]; return { target: [0, 0.2 + s.h / 2, 0], radius: Math.hypot(s.w / 2, (s.h + 0.3) / 2), width: s.w, height: s.h + 0.3, depth: 0.02 } }
+    if (active === 'flag') { const h = FLAG_SIZES[flagSize].h; return { target: [h * 0.08, h / 2, 0], radius: h * 0.54, width: h * 0.32, height: h, depth: 0.4 } }
+    if (active === 'premium') return { target: [0, 1.6, 0], radius: 6.2, width: 12, height: 3.66, depth: 3.05 }
+    const half = TENT_SIZES[tentSize].w / 2
+    return { target: [0, 1.6, 0], radius: active === 'kit' ? Math.hypot(half + 1.4, 1.6) : Math.hypot(half, 1.65, 0.6), width: active === 'kit' ? half * 2 + 2.9 : half * 2, height: active === 'kit' ? 3.66 : 3.3, depth: active === 'kit' && half > 2 ? 4.5 : 3.05 }
+  }, [active, tentSize, flagSize, yardSize])
+  const kitClear = useMemo(() => [{ x: 0, z: TENT_SIZES[tentSize].w > 4 ? 2.074 : 1.144, hw: 1.1, hd: 0.6 }], [tentSize])
+  const description = MODELS[active]
+  const small = active === 'pen'
+  const hasFlag = active === 'kit' || active === 'premium' || active === 'flag'
+  const groundRadius = active === 'premium' ? 8 : active === 'kit' ? TENT_SIZES[tentSize].w / 2 + 3 : active === 'canopy' ? 5 : 3
+  const tent = ['kit', 'premium', 'canopy'].includes(model)
+  const dimension = active === 'premium' ? '10 × 20 ft' : active === 'kit' || active === 'canopy' ? TENT_SIZES[tentSize].label : active === 'flag' ? FLAG_SIZES[flagSize].label : active === 'yard' ? YARD_SIGN_SIZES[yardSize].label : active === 'table' ? '6 ft' : '14 cm'
+  const shadowKey = [active, tentSize, walls, flagSize, flagShape, yardSize, environment].join('-')
 
-        <hemisphereLight intensity={0.75} groundColor="#b9c2cf" />
-        <ambientLight intensity={0.35} />
-        <directionalLight
-          position={[6, 11, 6]}
-          intensity={2.2}
-          castShadow
-          shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-11}
-          shadow-camera-right={11}
-          shadow-camera-top={11}
-          shadow-camera-bottom={-11}
-          shadow-bias={-0.0004}
-        />
-        <directionalLight position={[-8, 5, -4]} intensity={0.5} />
+  return <div className="app">
+    <header className="app-header">
+      <a className="brand" href="https://packeze.com" target="_blank" rel="noreferrer"><img src={logoUrl} alt="" /><span>packeze<span className="brand-dot">.</span></span></a>
+      <span className="header-divider" /><span className="header-label">3D product studio</span>
+      <a className="catalog-link" href="https://packeze.com/custom-tents" target="_blank" rel="noreferrer">Explore products <Icon name="arrow" size={16} /></a>
+    </header>
+    <div className="workspace">
+      <aside className="panel" aria-label="Product configuration">
+        <div className="panel-heading"><span className="eyebrow">MAKE IT YOURS</span><h1>Build your display</h1><p>A closer look at your next big idea.</p></div>
+        <section className="field"><h2><span className="step">01</span> Choose your product</h2>
+          <Choices value={model} options={(Object.keys(MODELS) as ModelKey[]).map(key => ({ key, label: MODELS[key].label }))} onChange={setModel} />
+        </section>
+        <section className="field"><h2><span className="step">02</span> The details</h2>
+          {tent && <>
+            {model !== 'premium' && <div className="subfield"><span className="field-label">Footprint</span><Choices value={tentSize} options={(Object.keys(TENT_SIZES) as TentSize[]).map(key => ({ key, label: TENT_SIZES[key].label }))} onChange={setTentSize} columns={3} /></div>}
+            <div className="subfield"><span className="field-label">Wall configuration</span><Choices value={walls} options={WALLS} onChange={setWalls} /></div>
+          </>}
+          {model === 'flag' && <>
+            <div className="subfield"><span className="field-label">Shape</span><Choices value={flagShape} options={[{ key: 'feather', label: 'Feather' }, { key: 'teardrop', label: 'Teardrop' }, { key: 'rectangle', label: 'Rectangle' }]} onChange={setFlagShape} columns={3} /></div>
+            <div className="subfield"><span className="field-label">Height</span><Choices value={flagSize} options={(Object.keys(FLAG_SIZES) as FlagSize[]).map(key => ({ key, label: FLAG_SIZES[key].label }))} onChange={setFlagSize} columns={3} /></div>
+          </>}
+          {model === 'yard' && <>
+            <div className="subfield"><span className="field-label">Sign size</span><Choices value={yardSize} options={(Object.keys(YARD_SIGN_SIZES) as YardSignSize[]).map(key => ({ key, label: YARD_SIGN_SIZES[key].label }))} onChange={setYardSize} /></div>
+            <div className="subfield"><span className="field-label">Print sides</span><Choices value={yardDoubleSided ? 'double' : 'single'} options={[{ key: 'single', label: 'Single-sided' }, { key: 'double', label: 'Double-sided' }]} onChange={value => setYardDoubleSided(value === 'double')} /></div>
+          </>}
+          {(model === 'table' || model === 'pen' || model === 'premium') && <p className="detail-note">{MODELS[model].detail}.</p>}
+        </section>
+        <section className="field artwork-field"><h2><span className="step">03</span> Add your artwork</h2>
+          <label className="upload-btn"><Icon name="upload" size={23} /><strong>{loading ? 'Opening artwork…' : 'Upload your design'}</strong><span>PNG, JPG or WebP · up to 20 MB</span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={upload} aria-label="Upload your design" /></label>
+          <div className="file-status" aria-live="polite"><span className="status-dot" /><span title={fileName}>{fileName}</span>{printImage && <button onClick={() => { uploadSequence.current++; setPrintImage(null); setFileName('Packeze sample branding'); setUploadError(''); setLoading(false) }} aria-label="Remove artwork">×</button>}</div>
+          {uploadError && <p className="upload-error" role="alert">{uploadError}</p>}
+          <button className="text-button" onClick={() => void applyArtwork(sampleUrl, 'Gutter Guardian sample')}>Try sample artwork <Icon name="arrow" size={14} /></button>
+        </section>
+        <div className="panel-note"><Icon name="check" size={16} /><span>Your artwork stays in this browser.</span></div>
+      </aside>
 
-        <ScaleRig
-          scale={scale}
-          baseTarget={baseTarget}
-          controlsRef={controls}
-          active={active}
-          target={model}
-          onCommit={() => setActive(model)}
-        >
-          {active === 'kit' && (
-            <>
-              <GrassGround
-                radius={TENT_SIZES[tentSize].w / 2 + 3.2}
-                clear={KIT_CLEAR}
-              />
-              <EventDisplay
-                print={printImage}
-                logo={logoImage}
-                tentSize={tentSize}
-                walls={walls}
-              />
-            </>
-          )}
-          {active === 'premium' && (
-            <>
-              <GrassGround radius={7.5} clear={PREMIUM_CLEAR} />
-              <PremiumKit print={printImage} logo={logoImage} walls={walls} />
-            </>
-          )}
-          {active === 'canopy' && (
-            <>
-              <GrassGround radius={TENT_SIZES[tentSize].w / 2 + 2} />
-              <Canopy print={printImage} logo={logoImage} size={tentSize} walls={walls} />
-            </>
-          )}
-          {active === 'flag' && (
-            <>
-              <GrassGround radius={2.4} />
-              <Flag
-                print={printImage}
-                logo={logoImage}
-                position={[0, 0, 0]}
-                shape={flagShape}
-                size={flagSize}
-              />
-            </>
-          )}
-          {active === 'table' && (
-            <>
-              <FloorGround radius={2} />
-              <TableCover print={printImage} />
-            </>
-          )}
-          {active === 'yard' && (
-            <YardSignScene
-              print={printImage}
-              logo={logoImage}
-              size={yardSize}
-              doubleSided={yardDoubleSided}
-            />
-          )}
-          {active === 'pen' && (
-            <>
-              <FloorGround radius={0.16} />
-              <Pen print={printImage} />
-            </>
-          )}
-        </ScaleRig>
-
-        <ContactShadows
-          position={[0, 0.001, 0]}
-          opacity={0.45}
-          scale={active === 'pen' ? 0.8 : 24}
-          blur={2.4}
-          far={active === 'pen' ? 0.4 : 12}
-        />
-
-        <OrbitControls
-          key={active}
-          ref={controls}
-          autoRotate={autoRotate}
-          autoRotateSpeed={ROTATE_SPEEDS[rotateSpeed].value}
-          enablePan={false}
-          enableZoom={false}
-          maxPolarAngle={Math.PI / 2 - 0.02}
-        />
-      </Canvas>
-
-      <div className="panel">
-        <h1>Event Display Preview</h1>
-        <p className="hint">Drag to rotate · Scroll to scale</p>
-
-        <div className="field">
-          <span>Model</span>
-          <div className="selector">
-            {(Object.keys(MODELS) as ModelKey[]).map((k) => (
-              <button
-                key={k}
-                className={model === k ? 'sel on' : 'sel'}
-                onClick={() => setModel(k)}
-              >
-                {MODELS[k].label}
-              </button>
-            ))}
-          </div>
+      <main className={`stage ${environment}`} ref={viewport} aria-label="Interactive 3D product preview"
+        onTouchStart={event => { if (event.touches.length === 2) touch.current = { distance: Math.hypot(event.touches[0].clientX - event.touches[1].clientX, event.touches[0].clientY - event.touches[1].clientY), zoom } }}
+        onTouchMove={event => { if (event.touches.length === 2 && touch.current) { const distance = Math.hypot(event.touches[0].clientX - event.touches[1].clientX, event.touches[0].clientY - event.touches[1].clientY); setZoom(MathUtils.clamp(touch.current.zoom * distance / Math.max(1, touch.current.distance), ZOOM_MIN, ZOOM_MAX)) } }}
+        onTouchEnd={() => { touch.current = null }}>
+        <div className="stage-heading"><span className="eyebrow">THE {description.label.toUpperCase()} / {description.number}</span><h2>{description.title}</h2><p>{description.detail}</p></div>
+        <div className="environment-switch" aria-label="Environment">
+          <button className={environment === 'studio' ? 'active' : ''} aria-pressed={environment === 'studio'} onClick={() => setEnvironment('studio')}><Icon name="studio" size={16} />Studio</button>
+          <button className={environment === 'outdoor' ? 'active' : ''} aria-pressed={environment === 'outdoor'} onClick={() => setEnvironment('outdoor')}><Icon name="sun" size={17} />Outdoor</button>
         </div>
-
-        {(model === 'kit' || model === 'canopy') && (
-          <div className="field">
-            <span>Tent size</span>
-            <div className="selector cols-3">
-              {(Object.keys(TENT_SIZES) as TentSize[]).map((k) => (
-                <button
-                  key={k}
-                  className={tentSize === k ? 'sel on' : 'sel'}
-                  onClick={() => setTentSize(k)}
-                >
-                  {TENT_SIZES[k].label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {TENT_MODELS.includes(model) && (
-          <div className="field">
-            <span>Walls</span>
-            <div className="selector">
-              {WALL_MODES.map((w) => (
-                <button
-                  key={w.key}
-                  className={walls === w.key ? 'sel on' : 'sel'}
-                  onClick={() => setWalls(w.key)}
-                >
-                  {w.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {model === 'flag' && (
-          <>
-            <div className="field">
-              <span>Flag shape</span>
-              <div className="selector cols-3">
-                {FLAG_SHAPES.map((f) => (
-                  <button
-                    key={f.key}
-                    className={flagShape === f.key ? 'sel on' : 'sel'}
-                    onClick={() => setFlagShape(f.key)}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="field">
-              <span>Flag height</span>
-              <div className="selector cols-3">
-                {(Object.keys(FLAG_SIZES) as FlagSize[]).map((k) => (
-                  <button
-                    key={k}
-                    className={flagSize === k ? 'sel on' : 'sel'}
-                    onClick={() => setFlagSize(k)}
-                  >
-                    {FLAG_SIZES[k].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        {model === 'yard' && (
-          <>
-            <div className="field">
-              <span>Sign size</span>
-              <div className="selector">
-                {(Object.keys(YARD_SIGN_SIZES) as YardSignSize[]).map((k) => (
-                  <button
-                    key={k}
-                    className={yardSize === k ? 'sel on' : 'sel'}
-                    onClick={() => setYardSize(k)}
-                  >
-                    {YARD_SIGN_SIZES[k].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="field">
-              <span>Print sides</span>
-              <div className="selector">
-                <button
-                  className={!yardDoubleSided ? 'sel on' : 'sel'}
-                  onClick={() => setYardDoubleSided(false)}
-                >
-                  Single-sided
-                </button>
-                <button
-                  className={yardDoubleSided ? 'sel on' : 'sel'}
-                  onClick={() => setYardDoubleSided(true)}
-                >
-                  Double-sided
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="field">
-          <span>Print artwork</span>
-          <label className="upload-btn">
-            Upload image…
-            <input type="file" accept="image/*" onChange={onUpload} hidden />
-          </label>
-          <span className="file-name" title={fileName}>
-            {fileName}
-          </span>
+        <div className="canvas-wrap">
+          <PreviewBoundary><Canvas frameloop="demand" scene={{ environmentIntensity: 0.3 }} shadows={{ type: PCFSoftShadowMap }} dpr={dpr} camera={{ fov: 38, position: [5, 4, 12], near: 0.002, far: 250 }} gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: 1 }}>
+            <PerformanceMonitor onDecline={() => setDpr(1)} flipflops={2} onFallback={() => setDpr(1)} />
+            <Lighting mode={environment} extent={framing.radius * 1.4} small={small} />
+            <WorldGround mode={environment} small={small} />
+            {environment === 'outdoor' && !small && <GrassGround radius={groundRadius} clear={active === 'kit' ? kitClear : active === 'premium' ? PREMIUM_CLEAR : active === 'table' ? TABLE_CLEAR : undefined} />}
+            <Wind enabled={hasFlag && breeze && !reducedMotion} reducedMotion={reducedMotion}>
+              {active === 'kit' && <EventDisplay print={printImage} logo={logo} tentSize={tentSize} walls={walls} />}
+              {active === 'premium' && <PremiumKit print={printImage} logo={logo} walls={walls} />}
+              {active === 'canopy' && <Canopy print={printImage} logo={logo} size={tentSize} walls={walls} />}
+              {active === 'flag' && <Flag print={printImage} logo={logo} position={[0, 0, 0]} shape={flagShape} size={flagSize} />}
+              {active === 'table' && <TableCover print={printImage} />}
+              {active === 'yard' && <YardSign print={printImage} logo={logo} size={yardSize} doubleSided={yardDoubleSided} />}
+              {active === 'pen' && <Pen print={printImage} />}
+            </Wind>
+            <ContactShadows key={shadowKey} frames={1} position={[0, 0.0001, 0]} opacity={environment === 'studio' ? 0.3 : 0.2} scale={framing.radius * 3.5} resolution={512} blur={2.5} far={small ? 0.08 : 4} color="#49453e" />
+            <CameraRig framing={framing} zoom={zoom} rotate={autoRotate} speed={SPEEDS[speed]} reset={reset} modelKey={active} reducedMotion={reducedMotion} />
+          </Canvas></PreviewBoundary>
+          <div className={`scene-veil ${model !== active ? 'visible' : ''}`} />
         </div>
-
-        <label className="field">
-          <span>Scale · {scale.toFixed(2)}×</span>
-          <input
-            type="range"
-            min={SCALE_MIN}
-            max={SCALE_MAX}
-            step={0.01}
-            value={scale}
-            onChange={(e) => setScale(parseFloat(e.target.value))}
-          />
-        </label>
-
-        {autoRotate && (
-          <div className="field">
-            <span>Rotation speed</span>
-            <div className="selector cols-3">
-              {(Object.keys(ROTATE_SPEEDS) as RotateSpeed[]).map((k) => (
-                <button
-                  key={k}
-                  className={rotateSpeed === k ? 'sel on' : 'sel'}
-                  onClick={() => setRotateSpeed(k)}
-                >
-                  {ROTATE_SPEEDS[k].label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="row">
-          <button
-            className={autoRotate ? 'toggle on' : 'toggle'}
-            onClick={() => setAutoRotate((v) => !v)}
-          >
-            {autoRotate ? 'Auto-rotate: on' : 'Auto-rotate: off'}
-          </button>
-          <button
-            className="ghost"
-            onClick={() => {
-              controls.current?.reset()
-              setScale(1)
-            }}
-          >
-            Reset
-          </button>
+        <div className="product-caption"><span className="caption-line" /><span>{description.label}</span><span className="dimension">{dimension}</span></div>
+        <div className="view-toolbar">
+          <button className={`rotate-button ${autoRotate && !reducedMotion ? 'active' : ''}`} aria-pressed={autoRotate && !reducedMotion} disabled={reducedMotion} onClick={() => setAutoRotate(value => !value)}><Icon name={autoRotate && !reducedMotion ? 'pause' : 'rotate'} size={16} /><span>{autoRotate && !reducedMotion ? 'Pause rotation' : 'Auto-rotate'}</span></button>
+          <label className="speed-control"><span className="sr-only">Rotation speed</span><select aria-label="Rotation speed" value={speed} onChange={event => setSpeed(event.target.value as keyof typeof SPEEDS)}><option value="slow">Slow</option><option value="normal">Normal</option><option value="fast">Fast</option></select></label>
+          <span className="toolbar-divider" />
+          <label className="zoom-control"><span>Zoom</span><input type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={0.01} value={zoom} aria-label="Zoom" onChange={event => setZoom(Number(event.target.value))} /><output>{Math.round(zoom * 100)}%</output></label>
+          <button className="reset-button" title="Reset view" aria-label="Reset view" onClick={() => { setZoom(1); setReset(value => value + 1) }}><Icon name="reset" size={18} /></button>
         </div>
-      </div>
+        <div className="stage-footer"><span>{reducedMotion ? 'Reduced motion enabled' : 'Drag to explore'}<span className="footer-dot">·</span>Scroll or pinch to zoom</span>{hasFlag && <label className="breeze-control"><input type="checkbox" checked={breeze && !reducedMotion} disabled={reducedMotion} onChange={event => setBreeze(event.target.checked)} />Gentle breeze</label>}</div>
+      </main>
     </div>
-  )
+  </div>
 }

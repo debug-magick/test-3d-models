@@ -1,75 +1,78 @@
 import { useMemo } from 'react'
+import * as THREE from 'three'
+import { useDispose } from './resources'
 
-/** Rectangular keep-clear zone (centre + half-extents) for tuft placement. */
 export type ClearRect = { x: number; z: number; hw: number; hd: number }
+export type EnvironmentMode = 'studio' | 'outdoor'
 
-/** Deterministic PRNG so tuft placement is stable across re-renders. */
 function makeRng(seed: number) {
-  return () => {
-    seed = (seed * 16807) % 2147483647
-    return seed / 2147483647
+  return () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+}
+
+function groundTexture(outdoor: boolean, small: boolean) {
+  const n = 256
+  const data = new Uint8Array(n * n * 4)
+  const random = makeRng(42)
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const noise = random() * 16 - 8
+    const patch = outdoor ? Math.sin(x / 7 + y / 13) * Math.cos(x / 9 - y / 5) * 4 : 0
+    const i = (y * n + x) * 4
+    data[i] = (outdoor ? 76 : 224) + noise + patch
+    data[i + 1] = (outdoor ? 91 : 222) + noise + patch
+    data[i + 2] = (outdoor ? 46 : 216) + noise + patch
+    data[i + 3] = 255
   }
+  const texture = new THREE.DataTexture(data, n, n)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.setScalar(small ? 1500 : 60)
+  texture.magFilter = THREE.LinearFilter
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.generateMipmaps = true
+  texture.needsUpdate = true
+  return texture
 }
 
-/** A round lawn: flat green disc scattered with low-poly grass tufts. */
-export function GrassGround({
-  radius,
-  clear = [],
-}: {
-  radius: number
-  clear?: ClearRect[]
-}) {
-  const tufts = useMemo(() => {
-    const rand = makeRng(1337)
-    const colors = ['#5f9e43', '#6fae4e', '#7cb85a']
-    const count = Math.round(Math.PI * radius * radius * 1.1)
-    const out: { pos: [number, number, number]; s: number; color: string }[] = []
-    let guard = count * 20
-    while (out.length < count && guard-- > 0) {
-      const a = rand() * Math.PI * 2
-      const r = 0.4 + rand() * (radius - 0.7)
-      const x = Math.cos(a) * r
-      const z = Math.sin(a) * r
-      if (clear.some((c) => Math.abs(x - c.x) < c.hw && Math.abs(z - c.z) < c.hd))
-        continue
-      out.push({
-        pos: [x, 0.055, z],
-        s: 0.7 + rand() * 0.8,
-        color: colors[Math.floor(rand() * colors.length)],
-      })
+/** Thousands of slender, bent blades share one geometry and one draw call. */
+export function GrassGround({ radius, clear = [] }: { radius: number; clear?: ClearRect[] }) {
+  const geometry = useMemo(() => {
+    const random = makeRng(1337)
+    const positions: number[] = [], colors: number[] = []
+    const count = Math.min(26000, Math.round(Math.PI * radius * radius * 180))
+    for (let i = 0; i < count; i++) {
+      const a = random() * Math.PI * 2, r = Math.sqrt(random()) * radius
+      const x = Math.cos(a) * r, z = Math.sin(a) * r
+      if (clear.some(c => Math.abs(x - c.x) < c.hw && Math.abs(z - c.z) < c.hd)) continue
+      const height = 0.018 + random() * 0.05
+      const angle = random() * Math.PI * 2
+      const dx = Math.cos(angle) * 0.006, dz = Math.sin(angle) * 0.006
+      const bend = 0.01 + random() * 0.016
+      const green = new THREE.Color('#4e602d').multiplyScalar(0.65 + random() * 0.65)
+      positions.push(x - dx, 0.001, z - dz, x + dx, 0.001, z + dz, x + bend, height, z + bend * 0.5)
+      for (let j = 0; j < 3; j++) {
+        const light = j === 2 ? 1.35 : 0.8
+        colors.push(green.r * light, green.g * light, green.b * light)
+      }
     }
-    return out
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    g.computeVertexNormals()
+    return g
   }, [radius, clear])
-
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[radius, 48]} />
-        <meshStandardMaterial color="#71ad50" roughness={1} />
-      </mesh>
-      {tufts.map((t, i) => (
-        <mesh key={i} position={t.pos} scale={t.s}>
-          <coneGeometry args={[0.05, 0.14, 5]} />
-          <meshStandardMaterial color={t.color} flatShading roughness={1} />
-        </mesh>
-      ))}
-    </group>
-  )
+  useDispose(geometry)
+  return <mesh geometry={geometry} receiveShadow>
+    <meshStandardMaterial vertexColors side={THREE.DoubleSide} roughness={1} />
+  </mesh>
 }
 
-/** A round expo-style floor for indoor items like the table cover. */
-export function FloorGround({ radius }: { radius: number }) {
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[radius, 48]} />
-        <meshStandardMaterial color="#d9dce1" roughness={0.7} />
-      </mesh>
-      {/* Darker rim so the floor reads as a platform, not a hole in the fog */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
-        <ringGeometry args={[radius * 0.97, radius, 64]} />
-        <meshStandardMaterial color="#b8bdc6" roughness={0.8} />
-      </mesh>
-    </group>
-  )
+/** The ground stays in world space while the camera zooms around the product. */
+export function WorldGround({ mode, small = false }: { mode: EnvironmentMode; small?: boolean }) {
+  const outdoor = mode === 'outdoor'
+  const texture = useMemo(() => groundTexture(outdoor, small), [outdoor, small])
+  useDispose(texture)
+  return <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001, 0]} receiveShadow>
+    <planeGeometry args={[200, 200]} />
+    <meshStandardMaterial map={texture} roughness={outdoor ? 1 : 0.84} metalness={0} />
+  </mesh>
 }

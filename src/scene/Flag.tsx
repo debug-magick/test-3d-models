@@ -1,6 +1,9 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import * as THREE from 'three'
-import { NAVY, makeAlphaTexture, makeFittedTexture, normaliseShapeUVs } from './print'
+import { makeBrandTexture, makeFittedTexture } from './print'
+import { FabricMaterial } from './materials'
+import { useDispose } from './resources'
+import { useWind, windShader } from './motion'
 import { FLAG_SIZES, type FlagSize } from './sizes'
 
 export type FlagShape = 'feather' | 'teardrop' | 'rectangle'
@@ -151,7 +154,6 @@ const SHAPES: Record<
  */
 export function Flag({
   print,
-  logo = null,
   position,
   side = 1,
   shape = 'feather',
@@ -169,11 +171,49 @@ export function Flag({
   const def = SHAPES[shape]
   const k = FLAG_SIZES[size].h / CANON_H
 
+  // Scan the silhouette into evenly spaced rows: unlike ShapeGeometry this
+  // has interior vertices, so wind bends the whole sail, not just its outline.
   const geo = useMemo(() => {
-    const g = new THREE.ShapeGeometry(def.shape((u) => s * u))
-    normaliseShapeUVs(g, mirror)
+    const outline = def.shape(u => u).getPoints(100)
+    const ys = outline.map(p => p.y)
+    const bottom = Math.min(...ys), top = Math.max(...ys)
+    const positions: number[] = [], uvs: number[] = [], indices: number[] = [], anchors: number[] = []
+    const columns = 20, rows = 80
+    for (let row = 0; row <= rows; row++) {
+      const y = bottom + (top - bottom) * (0.00001 + row / rows * 0.99998)
+      const hits: number[] = []
+      for (let j = 0; j < outline.length - 1; j++) {
+        const a = outline[j], b = outline[j + 1]
+        if ((a.y <= y && b.y > y) || (b.y <= y && a.y > y)) {
+          hits.push(a.x + (b.x - a.x) * (y - a.y) / (b.y - a.y))
+        }
+      }
+      const left = hits.length ? Math.min(...hits) : 0
+      const right = hits.length ? Math.max(...hits) : 0
+      for (let col = 0; col <= columns; col++) {
+        const x = THREE.MathUtils.lerp(left, right, col / columns)
+        positions.push(s * x, y, 0)
+        // Pin the teardrop to its curved trailing pole as well as its mast.
+        const curvedPole = def === SHAPES.teardrop ? THREE.MathUtils.smoothstep(y, H * 0.4, H * 0.55) : 0
+        anchors.push(1 - curvedPole * (1 - Math.sin(Math.PI * col / columns)))
+        uvs.push(x / def.w, (y - bottom) / (top - bottom))
+        if (row < rows && col < columns) {
+          const i = row * (columns + 1) + col
+          if (s > 0) indices.push(i, i + 1, i + columns + 1, i + 1, i + columns + 2, i + columns + 1)
+          else indices.push(i, i + columns + 1, i + 1, i + 1, i + columns + 1, i + columns + 2)
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+    g.setAttribute('windAnchor', new THREE.Float32BufferAttribute(anchors, 1))
+    g.setIndex(indices)
+    g.computeVertexNormals()
+    g.computeBoundingSphere()
+    g.boundingSphere!.radius += 0.15
     return g
-  }, [def, s, mirror])
+  }, [def, s])
 
   const poleGeo = useMemo(
     () => new THREE.TubeGeometry(def.pole(s), 64, POLE_R, 8, false),
@@ -181,13 +221,39 @@ export function Flag({
   )
 
   const tex = useMemo(
-    () => (print ? makeFittedTexture(print, def.w / H, 'contain') : null),
+    () => print ? makeFittedTexture(print, def.w / H, 'contain') : makeBrandTexture(def.w / H, true),
     [print, def],
   )
-  const logoTex = useMemo(() => (logo ? makeAlphaTexture(logo) : null), [logo])
+  const wind = useWind()
+  const compile = useCallback<THREE.Material['onBeforeCompile']>((shader) => {
+    shader.uniforms.windTime = wind.time
+    shader.uniforms.windStrength = wind.strength
+    shader.vertexShader = windShader + shader.vertexShader
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed.z += clothOffset(position);')
+    shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', `
+      #include <beginnormal_vertex>
+      float dx = (clothOffset(position + vec3(0.005, 0.0, 0.0)) - clothOffset(position - vec3(0.005, 0.0, 0.0))) / 0.01;
+      float dy = (clothOffset(position + vec3(0.0, 0.005, 0.0)) - clothOffset(position - vec3(0.0, 0.005, 0.0))) / 0.01;
+      objectNormal = normalize(vec3(-dx, -dy, 1.0));
+    `)
+  }, [wind])
+  const depth = useMemo(() => {
+    const material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide })
+    material.onBeforeCompile = compile
+    material.customProgramCacheKey = () => 'flag-wind-depth-v1'
+    return material
+  }, [compile])
+  useDispose(geo)
+  useDispose(poleGeo)
+  useDispose(tex)
+  useDispose(depth)
 
   return (
     <group position={position} scale={k}>
+      {[0, Math.PI / 2].map(angle => <mesh key={angle} position={[0, 0.015, 0]} rotation={[0, angle, 0]} castShadow>
+        <boxGeometry args={[0.6, 0.03, 0.055]} />
+        <meshStandardMaterial color="#30363b" metalness={0.7} roughness={0.38} />
+      </mesh>)}
       {/* Black ground bracket / clamp */}
       <mesh position={[0, 0.28, 0]}>
         <boxGeometry args={[0.05, 0.56, 0.05]} />
@@ -213,29 +279,17 @@ export function Flag({
         </mesh>
       )}
 
-      {/* Sail */}
-      <mesh geometry={geo} position={[0, BASE, 0.02]} castShadow>
-        <meshStandardMaterial
-          color={tex ? '#ffffff' : NAVY}
+      <mesh geometry={geo} position={[0, BASE, 0.008]} castShadow receiveShadow customDepthMaterial={depth}>
+        <FabricMaterial
+          key={tex.uuid}
+          color="white"
           map={tex}
-          roughness={0.9}
-          side={THREE.DoubleSide}
+          onBeforeCompile={compile}
+          customProgramCacheKey={() => 'flag-wind-v1'}
+          roughness={0.88}
+          sheen={0.45}
         />
       </mesh>
-
-      {/* Packeze logo near the top of the sail */}
-      {logoTex && (
-        <mesh position={[s * def.logoPos[0], def.logoPos[1], 0.035]}>
-          <planeGeometry args={[0.26, 0.26]} />
-          <meshStandardMaterial
-            map={logoTex}
-            transparent
-            alphaTest={0.05}
-            roughness={0.85}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      )}
     </group>
   )
 }

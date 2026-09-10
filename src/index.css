@@ -1,25 +1,11 @@
 :root {
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: light dark;
-  font-family: var(--sans);
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  margin: 0;
-  height: 100%;
-  width: 100%;
-}
-
-#root {
-  overflow: hidden;
-}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; width: 100%; }
+#root { overflow: hidden; }

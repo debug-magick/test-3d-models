@@ -23,13 +23,13 @@ export const FLAG_SIZES: Record<FlagSize, { label: string; h: number }> = {
 
 export type YardSignSize = '12x18' | '18x24' | '24x24' | '24x36'
 
-/** Available yard-sign panel sizes (width × height, inches). */
+/** Available yard-sign panel sizes (catalog height × width, inches). */
 export const YARD_SIGN_SIZES: Record<
   YardSignSize,
   { label: string; w: number; h: number }
 > = {
-  '12x18': { label: '12×18″', w: 12 * INCH, h: 18 * INCH },
-  '18x24': { label: '18×24″', w: 18 * INCH, h: 24 * INCH },
+  '12x18': { label: '12×18″', w: 18 * INCH, h: 12 * INCH },
+  '18x24': { label: '18×24″', w: 24 * INCH, h: 18 * INCH },
   '24x24': { label: '24×24″', w: 24 * INCH, h: 24 * INCH },
-  '24x36': { label: '24×36″', w: 24 * INCH, h: 36 * INCH },
+  '24x36': { label: '24×36″', w: 36 * INCH, h: 24 * INCH },
 }

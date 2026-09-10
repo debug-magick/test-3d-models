@@ -1,217 +1,141 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { LIME, NAVY, makeAlphaTexture, makeFittedTexture } from './print'
+import { LIME, makeAlphaTexture, makeBrandTexture, makeFittedTexture } from './print'
+import { FabricMaterial, FrameBar } from './materials'
+import { useDispose } from './resources'
 import { TENT_SIZES, type TentSize } from './sizes'
 
-/** Optional tent walls: none, a printed back wall, half-height walls all round,
- *  or full-height walls on the back and both sides (front stays open). */
 export type WallMode = 'none' | 'back' | 'half' | 'full'
+const EAVE = 2.35
+const VALANCE = 0.32
+const PEAK = 0.95
 
-const LEG_H = 2.2 // leg height (eave height)
-const VALANCE_H = 0.58 // hanging valance band height
-const ROOF_H = 1.2 // apex height above the eaves
-const LOGO_SIZE = 0.62
-const LEG_COLOR = '#f4f5f7' // white powder-coated frame
-const HALF_WALL_H = 0.95
-
-/** The Packeze logo printed onto one roof slope. */
-function RoofLogo({
-  logo,
-  half,
-  rotY,
-}: {
-  logo: THREE.Texture
-  half: number // half-extent of the roof along this slope's outward axis
-  rotY: number
+function FabricPanel({ width, height, texture, position, rotation = 0 }: {
+  width: number; height: number; texture: THREE.Texture
+  position: [number, number, number]; rotation?: number
 }) {
-  // Slope runs from the eave edge (y=0, z=half) up to the apex (y=ROOF_H, z=0);
-  // its outward normal is (0, half, ROOF_H) — tilt the decal to lie on it.
-  const n = new THREE.Vector3(0, half, ROOF_H).normalize()
-  const lift = 0.025 // hover just off the fabric to avoid z-fighting
-  return (
-    <group rotation={[0, rotY, 0]}>
-      <mesh
-        position={[0, ROOF_H * 0.45 + n.y * lift, half * 0.55 + n.z * lift]}
-        rotation={[-Math.atan2(half, ROOF_H), 0, 0]}
-      >
-        <planeGeometry args={[LOGO_SIZE, LOGO_SIZE]} />
-        <meshStandardMaterial map={logo} transparent alphaTest={0.05} roughness={0.85} />
-      </mesh>
-    </group>
-  )
+  const geometry = useMemo(() => {
+    const g = new THREE.PlaneGeometry(width, height, 40, 16)
+    const p = g.attributes.position
+    for (let i = 0; i < p.count; i++) {
+      const u = p.getX(i) / width + 0.5
+      const v = p.getY(i) / height + 0.5
+      p.setZ(i, Math.sin(u * Math.PI) * (Math.sin(u * 38 + v * 5) * 0.007 + Math.sin(v * Math.PI) * 0.018))
+      if (height < 0.5) p.setY(i, p.getY(i) - Math.sin(u * Math.PI) * (1 - v) * 0.012)
+    }
+    g.computeVertexNormals()
+    return g
+  }, [width, height])
+  useDispose(geometry)
+  return <mesh geometry={geometry} position={position} rotation={[0, rotation, 0]} castShadow receiveShadow>
+    <FabricMaterial key={texture.uuid} color="white" map={texture} />
+  </mesh>
 }
 
-/** A pop-up canopy tent: legs, a peaked roof with the Packeze logo on every
- *  slope, and a printed valance band around the eaves. */
-export function Canopy({
-  print,
-  logo,
-  size = '10x10',
-  walls = 'none',
-}: {
-  print: HTMLImageElement | null
-  logo: HTMLImageElement | null
-  size?: TentSize
-  walls?: WallMode
+function RoofPanel({ bottom, top, depth, rotation, offset, logo }: {
+  bottom: number; top: number; depth: number; rotation: number
+  offset: [number, number, number]; logo: THREE.Texture | null
 }) {
-  const { w: W, d: D } = TENT_SIZES[size]
-  const halfW = W / 2
-  const halfD = D / 2
-  const legW = halfW - 0.1
-  const legD = halfD - 0.1
-  const wallH = walls === 'half' ? HALF_WALL_H : LEG_H
-  const sideWalls = walls === 'half' || walls === 'full'
-
-  // The valance is a wide, short band — "contain" keeps the artwork at its
-  // natural proportions, centred on navy fabric, instead of crop-zooming it.
-  // Front/back and left/right spans differ on rectangular tents.
-  const valanceTexW = useMemo(
-    () => (print ? makeFittedTexture(print, W / VALANCE_H, 'contain') : null),
-    [print, W],
-  )
-  const valanceTexD = useMemo(
-    () => (print ? makeFittedTexture(print, D / VALANCE_H, 'contain') : null),
-    [print, D],
-  )
-  const logoTex = useMemo(() => (logo ? makeAlphaTexture(logo) : null), [logo])
-  // Wall graphics: back wall spans the width, side walls span the depth.
-  const backWallTex = useMemo(
-    () =>
-      print && walls !== 'none'
-        ? makeFittedTexture(print, W / wallH, 'contain')
-        : null,
-    [print, W, wallH, walls],
-  )
-  const sideWallTex = useMemo(
-    () =>
-      print && sideWalls ? makeFittedTexture(print, D / wallH, 'contain') : null,
-    [print, D, wallH, sideWalls],
-  )
-
-  const roofGeo = useMemo(() => {
-    // Unit square pyramid (half-width 1, height 1) — scaled to the footprint.
-    const g = new THREE.ConeGeometry(Math.SQRT2, 1, 4)
-    g.rotateY(Math.PI / 4) // align the four faces to front / back / left / right
-    g.translate(0, 0.5, 0) // base at y=0
+  const geometry = useMemo(() => {
+    const g = new THREE.PlaneGeometry(1, 1, 32, 24)
+    const p = g.attributes.position
+    const uv = g.attributes.uv
+    for (let i = 0; i < p.count; i++) {
+      const u = uv.getX(i)
+      const v = uv.getY(i)
+      const sag = Math.sin(Math.PI * u) * Math.sin(Math.PI * v) * 0.035
+      p.setXYZ(i, (u - 0.5) * THREE.MathUtils.lerp(bottom, top, v), PEAK * v - sag, depth * (1 - v))
+    }
+    g.computeVertexNormals()
     return g
-  }, [])
+  }, [bottom, top, depth])
+  useDispose(geometry)
+  return <group position={offset} rotation={[0, rotation, 0]}>
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <FabricMaterial color="#21406b" />
+    </mesh>
+    {logo && <mesh position={[0, PEAK * 0.43 - 0.025, depth * 0.57 + 0.004]} rotation={[-Math.atan2(depth, PEAK), 0, 0]}>
+      <planeGeometry args={[0.48, 0.48]} />
+      <FabricMaterial map={logo} transparent alphaTest={0.05} polygonOffset polygonOffsetFactor={-2} depthWrite={false} />
+    </mesh>}
+  </group>
+}
 
-  // Long tents get a third pair of legs in the middle of each long side.
-  const legXs = W > 4 ? [-legW, 0, legW] : [-legW, legW]
-  const legPositions = legXs.flatMap((x) => [
-    [x, -legD] as const,
-    [x, legD] as const,
-  ])
-
-  // Four valance sides. Front & back span X; left & right span Z.
-  const valanceSides = [
-    { pos: [0, 0, halfD] as const, rotY: 0, len: W, tex: valanceTexW },
-    { pos: [0, 0, -halfD] as const, rotY: Math.PI, len: W, tex: valanceTexW },
-    { pos: [halfW, 0, 0] as const, rotY: Math.PI / 2, len: D, tex: valanceTexD },
-    { pos: [-halfW, 0, 0] as const, rotY: -Math.PI / 2, len: D, tex: valanceTexD },
+export function Canopy({ print, logo, size = '10x10', walls = 'none' }: {
+  print: HTMLImageElement | null; logo: HTMLImageElement | null
+  size?: TentSize; walls?: WallMode
+}) {
+  const { w, d } = TENT_SIZES[size]
+  const hw = w / 2, hd = d / 2
+  const ridge = Math.max(0, hw - hd)
+  const legW = hw - 0.055, legD = hd - 0.055
+  const textures = useMemo(() => {
+    const make = (aspect: number) => print ? makeFittedTexture(print, aspect) : makeBrandTexture(aspect)
+    return [make(w / VALANCE), make(d / VALANCE), make(w / EAVE), make(d / (walls === 'half' ? 0.95 : EAVE))]
+  }, [print, w, d, walls])
+  const logoTex = useMemo(() => logo ? makeAlphaTexture(logo) : null, [logo])
+  useDispose(textures)
+  useDispose(logoTex)
+  const legs = (w > 4 ? [-legW, 0, legW] : [-legW, legW]).flatMap(x => [[x, -legD], [x, legD]])
+  const sides = [
+    { pos: [0, EAVE, hd] as [number, number, number], rotation: 0, width: w, texture: textures[0] },
+    { pos: [0, EAVE, -hd] as [number, number, number], rotation: Math.PI, width: w, texture: textures[0] },
+    { pos: [hw, EAVE, 0] as [number, number, number], rotation: Math.PI / 2, width: d, texture: textures[1] },
+    { pos: [-hw, EAVE, 0] as [number, number, number], rotation: -Math.PI / 2, width: d, texture: textures[1] },
   ]
-
-  return (
-    <group>
-      {/* Legs — slim white powder-coated frame */}
-      {legPositions.map(([x, z], i) => (
-        <mesh key={i} position={[x, LEG_H / 2, z]} castShadow>
-          <cylinderGeometry args={[0.026, 0.03, LEG_H, 16]} />
-          <meshStandardMaterial color={LEG_COLOR} metalness={0.3} roughness={0.5} />
-        </mesh>
-      ))}
-
-      {/* Foot pads */}
-      {legPositions.map(([x, z], i) => (
-        <mesh key={`f${i}`} position={[x, 0.02, z]}>
-          <cylinderGeometry args={[0.09, 0.11, 0.04, 16]} />
-          <meshStandardMaterial color="#33383f" roughness={0.8} />
-        </mesh>
-      ))}
-
-      {/* Peaked roof, stretched to the tent footprint */}
-      <mesh
-        geometry={roofGeo}
-        position={[0, LEG_H, 0]}
-        scale={[halfW, ROOF_H, halfD]}
-        castShadow
-      >
-        <meshStandardMaterial color={NAVY} roughness={0.85} side={THREE.DoubleSide} />
+  return <group>
+    {legs.map(([x, z]) => <group key={`${x},${z}`}>
+      <mesh position={[x, 0.59, z]} castShadow>
+        <cylinderGeometry args={[0.018, 0.018, 1.16, 6]} />
+        <meshStandardMaterial color="#c7cdd1" metalness={0.85} roughness={0.27} />
       </mesh>
+      <mesh position={[x, 1.7, z]} castShadow>
+        <cylinderGeometry args={[0.023, 0.023, 1.3, 6]} />
+        <meshStandardMaterial color="#d4d9dd" metalness={0.82} roughness={0.31} />
+      </mesh>
+      {[1.07, 2.04, 2.3].map(y => <mesh key={y} position={[x, y, z]}>
+        <boxGeometry args={[0.062, 0.075, 0.062]} />
+        <meshStandardMaterial color="#252b31" roughness={0.6} />
+      </mesh>)}
+      <mesh position={[x, 1.07, z + 0.035]}>
+        <sphereGeometry args={[0.013, 10, 8]} />
+        <meshStandardMaterial color={LIME} roughness={0.5} />
+      </mesh>
+      <mesh position={[x, 0.014, z]} castShadow receiveShadow>
+        <boxGeometry args={[0.12, 0.028, 0.12]} />
+        <meshStandardMaterial color="#555d62" metalness={0.7} roughness={0.4} />
+      </mesh>
+    </group>)}
 
-      {/* Packeze logo printed on all four roof slopes */}
-      {logoTex && (
-        <group position={[0, LEG_H, 0]}>
-          <RoofLogo logo={logoTex} half={halfD} rotY={0} />
-          <RoofLogo logo={logoTex} half={halfD} rotY={Math.PI} />
-          <RoofLogo logo={logoTex} half={halfW} rotY={Math.PI / 2} />
-          <RoofLogo logo={logoTex} half={halfW} rotY={-Math.PI / 2} />
+    {sides.map((side, i) => <group key={i} position={side.pos} rotation={[0, side.rotation, 0]}>
+      {Array.from({ length: Math.ceil(side.width / 0.85) }, (_, j) => {
+        const span = (side.width - 0.12) / Math.ceil(side.width / 0.85)
+        const x = -side.width / 2 + 0.06 + j * span
+        return <group key={j}>
+          <FrameBar start={[x, -0.04, -0.055]} end={[x + span, -0.36, -0.055]} radius={0.009} />
+          <FrameBar start={[x, -0.36, -0.045]} end={[x + span, -0.04, -0.045]} radius={0.009} />
         </group>
-      )}
+      })}
+      <FabricPanel width={side.width} height={VALANCE} texture={side.texture} position={[0, -VALANCE / 2, 0]} />
+      {[-0.012, -VALANCE + 0.014].map(y => <mesh key={y} position={[0, y, 0.007]}>
+        <boxGeometry args={[side.width, 0.012, 0.008]} />
+        <FabricMaterial color={y > -0.1 ? '#36567d' : LIME} />
+      </mesh>)}
+    </group>)}
 
-      {/* Lime trim ring where the roof meets the eaves */}
-      {valanceSides.map((s, i) => (
-        <mesh
-          key={`t${i}`}
-          position={[s.pos[0], LEG_H + 0.03, s.pos[2]]}
-          rotation={[0, s.rotY, 0]}
-        >
-          <boxGeometry args={[s.len + 0.05, 0.09, 0.06]} />
-          <meshStandardMaterial color={LIME} roughness={0.6} />
-        </mesh>
-      ))}
-
-      {/* Walls — back always, sides on half/full. Front stays open. */}
-      {walls !== 'none' && (
-        <>
-          <mesh position={[0, wallH / 2, -halfD]} receiveShadow>
-            <planeGeometry args={[W, wallH]} />
-            <meshStandardMaterial
-              color={backWallTex ? '#ffffff' : NAVY}
-              map={backWallTex}
-              roughness={0.9}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
-          {sideWalls &&
-            [
-              { x: -halfW, rotY: Math.PI / 2 },
-              { x: halfW, rotY: -Math.PI / 2 },
-            ].map((s) => (
-              <mesh
-                key={s.x}
-                position={[s.x, wallH / 2, 0]}
-                rotation={[0, s.rotY, 0]}
-                receiveShadow
-              >
-                <planeGeometry args={[D, wallH]} />
-                <meshStandardMaterial
-                  color={sideWallTex ? '#ffffff' : NAVY}
-                  map={sideWallTex}
-                  roughness={0.9}
-                  side={THREE.DoubleSide}
-                />
-              </mesh>
-            ))}
-        </>
-      )}
-
-      {/* Printed valance band hanging from the eaves */}
-      {valanceSides.map((s, i) => (
-        <mesh
-          key={`v${i}`}
-          position={[s.pos[0], LEG_H - VALANCE_H / 2, s.pos[2]]}
-          rotation={[0, s.rotY, 0]}
-        >
-          <planeGeometry args={[s.len, VALANCE_H]} />
-          <meshStandardMaterial
-            color={s.tex ? '#ffffff' : NAVY}
-            map={s.tex}
-            roughness={0.9}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      ))}
-    </group>
-  )
+    <RoofPanel bottom={w} top={ridge * 2} depth={hd} rotation={0} offset={[0, EAVE, 0]} logo={logoTex} />
+    <RoofPanel bottom={w} top={ridge * 2} depth={hd} rotation={Math.PI} offset={[0, EAVE, 0]} logo={logoTex} />
+    <RoofPanel bottom={d} top={0} depth={hd} rotation={Math.PI / 2} offset={[ridge, EAVE, 0]} logo={logoTex} />
+    <RoofPanel bottom={d} top={0} depth={hd} rotation={-Math.PI / 2} offset={[-ridge, EAVE, 0]} logo={logoTex} />
+    {[-1, 1].flatMap(x => [-1, 1].map(z => <FrameBar key={`${x},${z}`} start={[x * legW, EAVE - 0.035, z * legD]} end={[x * ridge, EAVE + PEAK - 0.035, 0]} radius={0.013} />))}
+    {ridge > 0 && <FrameBar start={[-ridge, EAVE + PEAK - 0.03, 0]} end={[ridge, EAVE + PEAK - 0.03, 0]} />}
+    {walls !== 'none' && <FabricPanel width={w - 0.07} height={EAVE - 0.07} texture={textures[2]} position={[0, EAVE / 2, -hd + 0.035]} />}
+    {(walls === 'half' || walls === 'full') && [-1, 1].map(s => {
+      const h = walls === 'half' ? 0.95 : EAVE - 0.07
+      return <group key={s}>
+        <FabricPanel width={d - 0.07} height={h} texture={textures[3]} position={[s * (hw - 0.035), h / 2 + 0.035, 0]} rotation={s * Math.PI / 2} />
+        {walls === 'half' && <FrameBar start={[s * legW, h + 0.04, -legD]} end={[s * legW, h + 0.04, legD]} />}
+      </group>
+    })}
+  </group>
 }
